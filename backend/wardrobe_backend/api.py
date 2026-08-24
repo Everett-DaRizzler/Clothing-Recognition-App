@@ -5,14 +5,14 @@ from .config import Settings
 from .db import Database
 from .storage import LocalImageStorage
 from .schema import ATTRIBUTES, ClothingAnalysis, GroundTruth, Correction
-from .ai.qwen3vl2b import Qwen3VL2BAnalyzer
+from .ai.stylewell4b import StyleWell4BAnalyzer
 from .evaluation import score
 settings=Settings()
-if not settings.model_is_allowed: raise RuntimeError("Phase 1 only permits Denali-AI/qwen3-vl-2b-sft-grpo-v9")
+if not settings.model_is_allowed: raise RuntimeError("Active model must be HelloWorld0204/Classification-StyleWell-model")
 app=FastAPI(title="AI Wardrobe Phase 1 API"); app.add_middleware(CORSMiddleware, allow_origins=["*"] , allow_methods=["*"], allow_headers=["*"])
-db=Database(settings.db_path); storage=LocalImageStorage(settings.images_dir, settings.max_upload_bytes); analyzer=Qwen3VL2BAnalyzer(settings.model_id, settings.model_revision, settings.device)
+db=Database(settings.db_path); storage=LocalImageStorage(settings.images_dir, settings.max_upload_bytes); analyzer=StyleWell4BAnalyzer(settings.model_id, settings.model_revision, settings.device)
 @app.get("/health")
-def health(): return {"ok":True,"modelId":"qwen3-vl-2b","modelName":settings.model_id}
+def health(): return {"ok":True,"modelId":"stylewell-4b","modelName":settings.model_id}
 @app.get("/models")
 def models(): return db.models()
 @app.post("/analyze", response_model=ClothingAnalysis)

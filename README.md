@@ -1,12 +1,12 @@
 # AI Wardrobe — Phase 1 local vision prototype
 
-This repository is a small, single-user prototype: an Expo phone client sends one clothing photo over local Wi-Fi to a FastAPI backend, which stores the original, preprocesses a working copy, and runs `Denali-AI/qwen3-vl-2b-sft-grpo-v9` locally.
+This repository is a small, single-user prototype: an Expo phone client sends one clothing photo over local Wi-Fi to a FastAPI backend, which stores the original, preprocesses a working copy, and runs `HelloWorld0204/Classification-StyleWell-model` locally.
 
 The repository was empty (Git only), so there was no frontend, backend, database, package manager, or convention to preserve. The implementation uses `mobile/` for Expo, `backend/` for FastAPI, SQLite, Pillow, and filesystem storage, and a `ClothingAnalyzer` interface with only the Qwen3-VL 2B adapter implemented.
 
 ## Model and hardware check
 
-The requested model is a 2B-parameter BF16 Apache-2.0 model. A practical planning estimate is roughly 4–6 GB for BF16 weights plus runtime overhead; target 8–10 GB VRAM or 16 GB+ system RAM, with extra disk headroom. This computer has 64 GiB RAM and an NVIDIA RTX 3080-class GPU, so it is a reasonable candidate, but the Python/CUDA runtime must be installed and verified first. Only this model is referenced as installed; StyleWell 4B and Qwen3-VL 8B are metadata-only future placeholders.
+The active model is `HelloWorld0204/Classification-StyleWell-model`, a Qwen3-VL-4B fine-tune for garment analysis. Its repository contains about 8.88 GB of BF16 safetensors and recommends 6 GB+ VRAM; this computer has 64 GiB RAM and an RTX 3080 with 10 GiB VRAM. Qwen3-VL 2B and Qwen3-VL 8B remain metadata-only and are not loaded.
 
 ## Backend
 
