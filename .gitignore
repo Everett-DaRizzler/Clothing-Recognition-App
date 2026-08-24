@@ -1,0 +1,9 @@
+backend/.venv/
+backend/data/
+backend/.env
+mobile/node_modules/
+mobile/.expo/
+mobile/.env
+__pycache__/
+.pytest_cache/
+.codex/

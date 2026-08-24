@@ -1,0 +1,1 @@
+{"expo":{"name":"AI Wardrobe","slug":"ai-wardrobe","version":"1.0.0","orientation":"portrait","plugins":["expo-image-picker"],"ios":{"supportsTablet":true},"android":{"permissions":["CAMERA","READ_MEDIA_IMAGES"]}}}
