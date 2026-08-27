@@ -12,6 +12,9 @@ class StyleWell4BAnalyzer(ClothingAnalyzer):
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
         self._processor = AutoProcessor.from_pretrained(self.model_name, revision=self.revision)
         self._model = Qwen3VLForConditionalGeneration.from_pretrained(self.model_name, revision=self.revision, dtype="auto", device_map=self.device).eval()
+    def is_cached(self):
+        from huggingface_hub import try_to_load_from_cache
+        return isinstance(try_to_load_from_cache(self.model_name, "config.json", revision=self.revision), str)
     def analyze(self, image_path: Path, image_id: str) -> ClothingAnalysis:
         self._load(); started=time.perf_counter(); from PIL import Image; image=Image.open(image_path).convert("RGB")
         messages=[{"role":"user","content":[{"type":"image","image":image},{"type":"text","text":ANALYSIS_PROMPT}]}]

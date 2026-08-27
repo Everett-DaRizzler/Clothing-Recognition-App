@@ -1,8 +1,8 @@
-# AI Wardrobe — Phase 1 local vision prototype
+# AI Wardrobe — Phase 2 digital wardrobe foundation
 
-This repository is a small, single-user prototype: an Expo phone client sends one clothing photo over local Wi-Fi to a FastAPI backend, which stores the original, preprocesses a working copy, and runs `HelloWorld0204/Classification-StyleWell-model` locally.
+This repository is a small, single-user prototype: an Expo phone client sends one clothing photo over local Wi-Fi to a FastAPI backend, which stores the original, preprocesses a working copy, runs `HelloWorld0204/Classification-StyleWell-model` locally, and lets the user save the reviewed analysis as a persistent digital wardrobe item.
 
-The repository was empty (Git only), so there was no frontend, backend, database, package manager, or convention to preserve. The implementation uses `mobile/` for Expo, `backend/` for FastAPI, SQLite, Pillow, and filesystem storage, and a `ClothingAnalyzer` interface with only the Qwen3-VL 2B adapter implemented.
+The implementation uses `mobile/` for Expo, `backend/` for FastAPI, SQLite, Pillow, and filesystem storage, and a `ClothingAnalyzer` interface with StyleWell 4B as the active adapter. Phase 2 adds a `clothing_items` table that is deliberately separate from the `images`, `predictions`, and `corrections` records.
 
 ## Model and hardware check
 
@@ -24,19 +24,46 @@ python -m wardrobe_backend --check-hardware
 python -m wardrobe_backend
 ```
 
-The first inference downloads only the requested model into the Hugging Face cache. To pre-download it explicitly, use `python -m wardrobe_backend --download-model`. Find the computer's LAN IP with `ipconfig`, allow port 8000 through the Windows Firewall on Private networks, and keep the iPhone and computer on the same Wi-Fi.
+The active model is already present in the local Hugging Face cache. The iPhone workflow does not download models; it only asks the local backend to run the installed StyleWell model. Find the computer's LAN IP with `ipconfig`, allow port 8000 through the Windows Firewall on Private networks, and keep the iPhone and computer on the same Wi-Fi.
+
+## Phase 2 wardrobe flow
+
+The normal mobile flow is:
+
+`My Wardrobe → Add Clothing → Take/Choose Photo → Analyze → Review/Edit → Save to Wardrobe → Browse/Search/Filter → Detail/Edit/Delete`
+
+Wardrobe cards use the stored 320px thumbnails. Detail screens request the larger original image. Deleting a wardrobe item leaves the underlying image and AI analysis history intact, so an image cannot be accidentally destroyed with its clothing record.
+
+The backend exposes:
+
+- `GET /wardrobe?search=&category=` for structured search and category filtering
+- `POST /wardrobe` for idempotent save-after-analysis
+- `GET/PATCH/DELETE /wardrobe/{id}` for detail, editing, and deletion
+- `GET /images/{image_id}/thumbnail` and `/original` for stored image variants
+
+User edits update the active wardrobe values while the original AI prediction remains in `ai_prediction_json`; each changed AI attribute also receives a separate correction-history record.
 
 ## Mobile
 
 ```powershell
 cd mobile
 npm install
-copy .env.example .env
+copy .env.example .env.local
 # Edit EXPO_PUBLIC_API_URL to http://YOUR_LAN_IP:8000
-npx expo start
+npm start
 ```
 
-Open the project on the physical iPhone, take or choose one photo, and tap Analyze. The app reports backend, timeout, upload, invalid-response, and inference errors.
+Open the project on the physical iPhone, tap **Add Clothing**, take or choose one photo, tap **Analyze**, review the fields, and tap **Save to Wardrobe**. The app reports backend, timeout, upload, invalid-response, and inference errors. See [IPHONE_DEVELOPMENT.md](IPHONE_DEVELOPMENT.md) for the verified LAN, firewall, and Expo Go workflow.
+
+## Tests
+
+From `backend`:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The suite covers image preparation, API health/CORS, ClothingItem persistence, duplicate-save prevention, search/filter, image association, edit/correction history, and delete safety. From `mobile`, `npx tsc --noEmit` checks the Expo client.
 
 ## Benchmark
 
@@ -44,4 +71,4 @@ Add 30–50 photos through Developer AI Lab, run analysis, save each result, mar
 
 ## Limitations
 
-One primary garment per image, local storage, no login, no cloud AI, no segmentation/object detection, and no outfit recommendations. The API is intentionally a trusted private-LAN development service; do not expose port 8000 to the public internet. Next step: label real clothing photos, run evaluation, and decide whether the 2B model is good enough before considering any future model.
+One primary garment per image, local storage, no login, no cloud AI, no segmentation/object detection, and no outfit recommendations. The API is intentionally a trusted private-LAN development service; do not expose port 8000 to the public internet.
