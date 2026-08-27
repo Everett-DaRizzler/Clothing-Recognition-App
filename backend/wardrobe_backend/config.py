@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 15 * 1024 * 1024
     inference_timeout_seconds: int = 180
     device: str = "auto"
+    environment: str = "development"
     @property
     def model_is_allowed(self): return self.model_id == "HelloWorld0204/Classification-StyleWell-model"
     @property

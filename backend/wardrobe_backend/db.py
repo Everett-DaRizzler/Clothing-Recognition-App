@@ -98,6 +98,19 @@ class Database:
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY(image_id) REFERENCES images(id)
                 );
+                CREATE TABLE IF NOT EXISTS outfits(
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    clothing_item_ids_json TEXT NOT NULL,
+                    occasion TEXT,
+                    style TEXT,
+                    season TEXT,
+                    generation_method TEXT NOT NULL,
+                    generation_metadata_json TEXT NOT NULL DEFAULT '{}',
+                    user_rating INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             models = [
@@ -266,6 +279,88 @@ class Database:
     def delete_clothing_item(self, item_id):
         with self.conn() as connection:
             cursor = connection.execute("DELETE FROM clothing_items WHERE id=?", (item_id,))
+            return cursor.rowcount > 0
+
+    def _outfit(self, row):
+        if row is None:
+            return None
+        outfit = dict(row)
+        item_ids = _load(outfit["clothing_item_ids_json"], [])
+        items = []
+        missing = []
+        with self.conn() as connection:
+            for item_id in item_ids:
+                item_row = connection.execute("SELECT * FROM clothing_items WHERE id=?", (item_id,)).fetchone()
+                if item_row:
+                    items.append(self._item(item_row))
+                else:
+                    missing.append(item_id)
+        metadata = _load(outfit["generation_metadata_json"], {})
+        return {
+            "id": outfit["id"], "name": outfit["name"], "clothingItemIds": item_ids,
+            "clothingItems": items, "deletedItemIds": missing, "deletedItemRoles": {item_id: metadata.get("itemRoles", {}).get(item_id) for item_id in missing}, "occasion": outfit["occasion"],
+            "style": outfit["style"], "season": outfit["season"], "generationMethod": outfit["generation_method"],
+            "generationMetadata": metadata, "userRating": outfit["user_rating"],
+            "createdAt": outfit["created_at"], "updatedAt": outfit["updated_at"],
+        }
+
+    def _validate_outfit_item_ids(self, item_ids):
+        unique_ids = list(dict.fromkeys(item_ids))
+        with self.conn() as connection:
+            rows = connection.execute(
+                "SELECT id FROM clothing_items WHERE id IN ({})".format(",".join("?" for _ in unique_ids)), unique_ids
+            ).fetchall() if unique_ids else []
+        found = {row["id"] for row in rows}
+        return unique_ids, [item_id for item_id in unique_ids if item_id not in found]
+
+    def create_outfit(self, values):
+        item_ids, missing = self._validate_outfit_item_ids(values["clothingItemIds"])
+        if missing:
+            raise ValueError(f"Clothing items not found: {', '.join(missing)}")
+        outfit_id, now = uuid.uuid4().hex, _now()
+        with self.conn() as connection:
+            connection.execute(
+                "INSERT INTO outfits(id,name,clothing_item_ids_json,occasion,style,season,generation_method,generation_metadata_json,user_rating,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (outfit_id, values.get("name") or "Saved Outfit", _json(item_ids), values.get("occasion"), values.get("style"), values.get("season"), values.get("generationMethod", "deterministic"), json.dumps(values.get("generationMetadata", {}), ensure_ascii=False), values.get("userRating"), now, now),
+            )
+        return self.get_outfit(outfit_id)
+
+    def get_outfit(self, outfit_id):
+        with self.conn() as connection:
+            row = connection.execute("SELECT * FROM outfits WHERE id=?", (outfit_id,)).fetchone()
+        return self._outfit(row)
+
+    def list_outfits(self):
+        with self.conn() as connection:
+            rows = connection.execute("SELECT * FROM outfits ORDER BY updated_at DESC").fetchall()
+        return [self._outfit(row) for row in rows]
+
+    def update_outfit(self, outfit_id, updates, allow_missing=False):
+        current = self.get_outfit(outfit_id)
+        if not current:
+            return None
+        if "clothingItemIds" in updates:
+            item_ids, missing = self._validate_outfit_item_ids(updates["clothingItemIds"])
+            if missing and not allow_missing:
+                raise ValueError(f"Clothing items not found: {', '.join(missing)}")
+            updates["clothingItemIds"] = item_ids
+        columns = {"clothingItemIds": "clothing_item_ids_json", "generationMethod": "generation_method", "generationMetadata": "generation_metadata_json", "userRating": "user_rating"}
+        editable = ("name", "clothingItemIds", "occasion", "style", "season", "generationMethod", "generationMetadata", "userRating")
+        assignments, params = [], []
+        for key in editable:
+            if key in updates:
+                assignments.append(f"{columns.get(key, key)}=?")
+                params.append(_json(updates[key]) if key == "clothingItemIds" else json.dumps(updates[key], ensure_ascii=False) if key == "generationMetadata" else updates[key])
+        if assignments:
+            assignments.append("updated_at=?")
+            params.extend([_now(), outfit_id])
+            with self.conn() as connection:
+                connection.execute(f"UPDATE outfits SET {', '.join(assignments)} WHERE id=?", params)
+        return self.get_outfit(outfit_id)
+
+    def delete_outfit(self, outfit_id):
+        with self.conn() as connection:
+            cursor = connection.execute("DELETE FROM outfits WHERE id=?", (outfit_id,))
             return cursor.rowcount > 0
 
     def benchmark_rows(self):

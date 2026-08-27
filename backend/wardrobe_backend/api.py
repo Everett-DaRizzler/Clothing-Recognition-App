@@ -11,14 +11,15 @@ from .ai.stylewell4b import StyleWell4BAnalyzer
 from .config import Settings
 from .db import Database
 from .evaluation import score
-from .schema import ATTRIBUTES, ClothingAnalysis, Correction, GroundTruth, WardrobeItemCreate, WardrobeItemUpdate
+from .outfit_engine import combination_id, explanation, generate_outfit, role_for_item, score_combination, test_wardrobe
+from .schema import ATTRIBUTES, ClothingAnalysis, Correction, GroundTruth, OutfitCreate, OutfitGenerationRequest, OutfitRating, OutfitReplacement, OutfitUpdate, WardrobeItemCreate, WardrobeItemUpdate
 from .storage import LocalImageStorage
 
 settings = Settings()
 if not settings.model_is_allowed:
     raise RuntimeError("Active model must be HelloWorld0204/Classification-StyleWell-model")
 
-app = FastAPI(title="AI Wardrobe Phase 2 API")
+app = FastAPI(title="AI Wardrobe Phase 3 API")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?::\d+)?$",
@@ -126,6 +127,117 @@ def delete_wardrobe_item(item_id: str):
     if not db.delete_clothing_item(item_id):
         raise HTTPException(404, "Clothing item not found")
     return {"deleted": True, "id": item_id}
+
+
+def _outfit_generation_response(result):
+    return result
+
+
+@app.post("/outfits/generate")
+def generate(request: OutfitGenerationRequest):
+    if request.source == "test" and settings.environment != "development":
+        raise HTTPException(404, "Developer outfit fixtures are disabled")
+    items = test_wardrobe() if request.source == "test" else db.list_clothing_items()
+    if request.anchorItemId and not any(item["id"] == request.anchorItemId for item in items):
+        raise HTTPException(404, "Anchor clothing item not found")
+    result = generate_outfit(items, request.occasion, request.style, request.season, request.anchorItemId, request.excludeCombinationIds, request.source)
+    if not request.debug:
+        result.pop("candidates", None)
+        result.pop("rejected", None)
+    result["filters"] = {"occasion": request.occasion, "style": request.style, "season": request.season}
+    result["generationMethod"] = "deterministic-test" if request.source == "test" else "deterministic"
+    return _outfit_generation_response(result)
+
+
+@app.get("/developer/outfit-test-wardrobe")
+def outfit_test_wardrobe():
+    if settings.environment != "development":
+        raise HTTPException(404, "Developer outfit fixtures are disabled")
+    return {"items": test_wardrobe(), "notice": "Developer-only fictional data. These items are never inserted into the real wardrobe."}
+
+
+@app.get("/outfits")
+def outfits():
+    return db.list_outfits()
+
+
+@app.post("/outfits")
+def create_outfit(outfit: OutfitCreate):
+    values = outfit.model_dump()
+    try:
+        return db.create_outfit(values)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.get("/outfits/{outfit_id}")
+def get_outfit(outfit_id: str):
+    outfit = db.get_outfit(outfit_id)
+    if not outfit:
+        raise HTTPException(404, "Outfit not found")
+    return outfit
+
+
+@app.patch("/outfits/{outfit_id}")
+def update_outfit(outfit_id: str, updates: OutfitUpdate):
+    try:
+        outfit = db.update_outfit(outfit_id, updates.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not outfit:
+        raise HTTPException(404, "Outfit not found")
+    return outfit
+
+
+@app.delete("/outfits/{outfit_id}")
+def delete_outfit(outfit_id: str):
+    if not db.delete_outfit(outfit_id):
+        raise HTTPException(404, "Outfit not found")
+    return {"deleted": True, "id": outfit_id}
+
+
+@app.post("/outfits/{outfit_id}/replace")
+def replace_outfit_item(outfit_id: str, replacement: OutfitReplacement):
+    outfit = db.get_outfit(outfit_id)
+    if not outfit:
+        raise HTTPException(404, "Outfit not found")
+    replacement_item = db.get_clothing_item(replacement.clothingItemId)
+    if not replacement_item:
+        raise HTTPException(404, "Replacement clothing item not found")
+    if role_for_item(replacement_item) != replacement.role:
+        raise HTTPException(422, "Replacement item does not match the selected outfit role")
+    live_by_id = {item["id"]: item for item in outfit["clothingItems"]}
+    item_roles = outfit.get("generationMetadata", {}).get("itemRoles", {})
+    item_ids = []
+    removed_missing = False
+    for item_id in outfit["clothingItemIds"]:
+        item = live_by_id.get(item_id)
+        if item and role_for_item(item) == replacement.role:
+            continue
+        if not item and item_roles.get(item_id) == replacement.role and not removed_missing:
+            removed_missing = True
+            continue
+        item_ids.append(item_id)
+    item_ids.append(replacement.clothingItemId)
+    try:
+        updated = db.update_outfit(outfit_id, {"clothingItemIds": item_ids}, allow_missing=True)
+        live_items = updated["clothingItems"]
+        filters = {"occasion": updated.get("occasion"), "style": updated.get("style"), "season": updated.get("season")}
+        metadata = {"score": score_combination(live_items, filters), "combinationId": combination_id(live_items), "explanation": explanation(live_items, filters), "itemRoles": {item["id"]: role_for_item(item) for item in live_items}}
+        return db.update_outfit(outfit_id, {"generationMetadata": metadata})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.patch("/outfits/{outfit_id}/rating")
+def rate_outfit(outfit_id: str, rating: OutfitRating):
+    try:
+        outfit = db.update_outfit(outfit_id, {"userRating": rating.userRating})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not outfit:
+        raise HTTPException(404, "Outfit not found")
+    return outfit
 
 
 @app.post("/ground-truth")

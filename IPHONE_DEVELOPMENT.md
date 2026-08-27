@@ -1,6 +1,6 @@
-# iPhone + Expo Go + local backend development
+# iPhone + Expo Go + local backend development (Phase 3)
 
-This guide runs the Phase 2 AI Wardrobe application entirely on the local network:
+This guide runs the Phase 3 AI Wardrobe application entirely on the local network:
 
 `iPhone → Expo Go → Wi-Fi → Windows PC → FastAPI → installed StyleWell 4B model → iPhone`
 
@@ -136,6 +136,23 @@ Open Expo Go on the iPhone and scan the QR code shown by Expo. Keep both termina
 8. Review the detected fields and edit any obvious mistakes.
 9. Tap **Save to Wardrobe** and confirm **Added to wardrobe.**
 10. Search/filter the wardrobe card, open it, edit it, and delete it when finished.
+11. Open **Outfits** and tap **Generate Outfit**.
+12. Choose an occasion, style, and season, then tap **Generate Outfit**.
+13. Confirm every displayed piece is from the wardrobe, review the explanation and score, and tap **Regenerate**.
+14. Save the generated outfit, open it under **Saved Outfits**, rate it, and use **Replace** on a piece.
+15. Open a clothing detail screen and use **Build an Outfit Around This** to verify specific-item generation.
+
+The outfit engine does not call the StyleWell model again. It uses saved structured attributes and stored thumbnails, so generation should be much faster than photo analysis.
+
+## 8. Developer Outfit Lab
+
+From **Developer AI Lab**, tap **Open Developer Outfit Lab**. This uses 10 fictional clothing items and never inserts them into the real wardrobe. Generate a fixture outfit to inspect:
+
+- color, style, occasion, season, pattern, and completeness scores
+- total score and candidate count
+- rejection reasons such as occasion mismatch or a role already being filled
+
+Use this screen when tuning scoring rules without photographing additional clothing.
 
 ## Troubleshooting
 

@@ -25,6 +25,39 @@ export type ClothingItem = {
   updatedAt: string;
 };
 
+export type Outfit = {
+  id: string;
+  name: string;
+  clothingItemIds: string[];
+  clothingItems: ClothingItem[];
+  deletedItemIds: string[];
+  deletedItemRoles: Record<string, string | null>;
+  occasion?: string | null;
+  style?: string | null;
+  season?: string | null;
+  generationMethod: string;
+  generationMetadata: Record<string, any>;
+  userRating?: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OutfitGeneration = {
+  available: boolean;
+  items: ClothingItem[];
+  clothingItemIds: string[];
+  combinationId?: string;
+  missingRoles: string[];
+  isComplete?: boolean;
+  message?: string;
+  explanation: string;
+  score?: { total: number; components: Record<string, number>; reasons: string[] };
+  candidates?: Array<Record<string, any>>;
+  rejected?: Array<Record<string, any>>;
+  filters?: Record<string, string | null>;
+  generationMethod?: string;
+};
+
 type ErrorKind = 'configuration' | 'network' | 'timeout' | 'http' | 'invalid-response';
 
 export class ApiError extends Error {
@@ -80,6 +113,25 @@ export function updateWardrobeItem(id: string, values: Record<string, unknown>) 
 export function deleteWardrobeItem(id: string) {
   return requestJson(`/wardrobe/${encodeURIComponent(id)}`, { method: 'DELETE' }, 15_000);
 }
+
+export const getOutfits = () => requestJson('/outfits', {}, 10_000) as Promise<Outfit[]>;
+export const getOutfit = (id: string) => requestJson(`/outfits/${encodeURIComponent(id)}`, {}, 10_000) as Promise<Outfit>;
+export function generateOutfit(values: Record<string, unknown>) {
+  return requestJson('/outfits/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }, 15_000) as Promise<OutfitGeneration>;
+}
+export function saveOutfit(values: Record<string, unknown>) {
+  return requestJson('/outfits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }, 15_000) as Promise<Outfit>;
+}
+export function updateOutfit(id: string, values: Record<string, unknown>) {
+  return requestJson(`/outfits/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }, 15_000) as Promise<Outfit>;
+}
+export function replaceOutfitItem(id: string, role: string, clothingItemId: string) {
+  return requestJson(`/outfits/${encodeURIComponent(id)}/replace`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, clothingItemId }) }, 15_000) as Promise<Outfit>;
+}
+export function rateOutfit(id: string, userRating: number | null) {
+  return requestJson(`/outfits/${encodeURIComponent(id)}/rating`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRating }) }, 15_000) as Promise<Outfit>;
+}
+export const getTestOutfitWardrobe = () => requestJson('/developer/outfit-test-wardrobe', {}, 10_000) as Promise<{ items: ClothingItem[]; notice: string }>;
 
 export function saveCorrection(imageId: string, attribute: string, originalAIValue: unknown, correctedValue: unknown) {
   return requestJson(`/corrections?image_id=${encodeURIComponent(imageId)}`, {

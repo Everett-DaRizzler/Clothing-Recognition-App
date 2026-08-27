@@ -1,8 +1,8 @@
-# AI Wardrobe — Phase 2 digital wardrobe foundation
+# AI Wardrobe — Phase 3 outfit generation engine
 
 This repository is a small, single-user prototype: an Expo phone client sends one clothing photo over local Wi-Fi to a FastAPI backend, which stores the original, preprocesses a working copy, runs `HelloWorld0204/Classification-StyleWell-model` locally, and lets the user save the reviewed analysis as a persistent digital wardrobe item.
 
-The implementation uses `mobile/` for Expo, `backend/` for FastAPI, SQLite, Pillow, and filesystem storage, and a `ClothingAnalyzer` interface with StyleWell 4B as the active adapter. Phase 2 adds a `clothing_items` table that is deliberately separate from the `images`, `predictions`, and `corrections` records.
+The implementation uses `mobile/` for Expo, `backend/` for FastAPI, SQLite, Pillow, and filesystem storage, and a `ClothingAnalyzer` interface with StyleWell 4B as the active adapter. Phase 3 adds a deterministic outfit engine: the vision model extracts clothing attributes, then `outfit_engine.py` groups and scores existing wardrobe items without additional inference.
 
 ## Model and hardware check
 
@@ -26,13 +26,19 @@ python -m wardrobe_backend
 
 The active model is already present in the local Hugging Face cache. The iPhone workflow does not download models; it only asks the local backend to run the installed StyleWell model. Find the computer's LAN IP with `ipconfig`, allow port 8000 through the Windows Firewall on Private networks, and keep the iPhone and computer on the same Wi-Fi.
 
-## Phase 2 wardrobe flow
+## Wardrobe and outfit flows
 
-The normal mobile flow is:
+The clothing flow is:
 
 `My Wardrobe → Add Clothing → Take/Choose Photo → Analyze → Review/Edit → Save to Wardrobe → Browse/Search/Filter → Detail/Edit/Delete`
 
 Wardrobe cards use the stored 320px thumbnails. Detail screens request the larger original image. Deleting a wardrobe item leaves the underlying image and AI analysis history intact, so an image cannot be accidentally destroyed with its clothing record.
+
+The outfit flow is:
+
+`My Wardrobe → Outfits → Generate Outfit → Choose occasion/style/season → View → Regenerate/replace → Save → Rate`
+
+The **Build an Outfit Around This** action on a clothing detail screen starts specific-item generation. Saved outfits reference clothing item IDs; they do not duplicate clothing records. If an item is later deleted, the saved outfit remains readable and identifies the missing item so it can be replaced.
 
 The backend exposes:
 
@@ -40,6 +46,12 @@ The backend exposes:
 - `POST /wardrobe` for idempotent save-after-analysis
 - `GET/PATCH/DELETE /wardrobe/{id}` for detail, editing, and deletion
 - `GET /images/{image_id}/thumbnail` and `/original` for stored image variants
+- `POST /outfits/generate` for deterministic role-based outfit generation
+- `GET /outfits` and `GET /outfits/{id}` for saved outfits
+- `POST /outfits` and `PATCH /outfits/{id}` for outfit persistence/editing
+- `POST /outfits/{id}/replace` for replacing a top, bottom, shoes, outerwear, or accessory
+- `PATCH /outfits/{id}/rating` for a 1–5 user rating
+- `GET /developer/outfit-test-wardrobe` for fictional developer-only fixture data
 
 User edits update the active wardrobe values while the original AI prediction remains in `ai_prediction_json`; each changed AI attribute also receives a separate correction-history record.
 
@@ -63,12 +75,12 @@ From `backend`:
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-The suite covers image preparation, API health/CORS, ClothingItem persistence, duplicate-save prevention, search/filter, image association, edit/correction history, and delete safety. From `mobile`, `npx tsc --noEmit` checks the Expo client.
+The suite covers image preparation, API health/CORS, ClothingItem persistence, duplicate-save prevention, search/filter, image association, edit/correction history, delete safety, color/pattern/style compatibility, scoring/ranking, regeneration diversity, specific-item generation, missing roles, fixture data, outfit persistence, ratings, replacement, and deleted-item safety. From `mobile`, `npm exec tsc -- --noEmit` checks the Expo client and `npm exec expo-doctor` checks Expo compatibility.
 
 ## Benchmark
 
 Add 30–50 photos through Developer AI Lab, run analysis, save each result, mark benchmark ground truth, and run `python -m wardrobe_backend.benchmark`. Ground truth and predictions are stored separately; corrections preserve both original and corrected values.
 
-## Limitations
+## Phase 3 limitations
 
-One primary garment per image, local storage, no login, no cloud AI, no segmentation/object detection, and no outfit recommendations. The API is intentionally a trusted private-LAN development service; do not expose port 8000 to the public internet.
+One primary garment per image, local storage, no login, no cloud AI, no segmentation/object detection, no weather, no shopping links, and no personalization. The engine is intentionally deterministic and uses broad heuristic compatibility rules that will be tuned in later phases. The API is a trusted private-LAN development service; do not expose port 8000 to the public internet.

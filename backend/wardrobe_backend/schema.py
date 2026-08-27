@@ -1,5 +1,9 @@
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, Field
+
+OccasionValue = Literal["Everyday", "School", "Date", "Casual", "Formal", "Work", "Party"]
+StyleValue = Literal["Casual", "Smart Casual", "Formal", "Streetwear", "Sporty", "Classic", "Minimal", "Preppy"]
+SeasonValue = Literal["Spring", "Summer", "Fall", "Winter"]
 ATTRIBUTES = ("category", "type", "color", "secondaryColors", "pattern", "fabric", "fit", "style", "occasion", "season")
 LIST_ATTRIBUTES = ("secondaryColors", "style", "occasion", "season")
 class Confidence(BaseModel):
@@ -45,3 +49,42 @@ class WardrobeItemUpdate(BaseModel):
     style: list[str] | None = None
     occasion: list[str] | None = None
     season: list[str] | None = None
+
+
+class OutfitGenerationRequest(BaseModel):
+    occasion: OccasionValue | None = None
+    style: StyleValue | None = None
+    season: SeasonValue | None = None
+    anchorItemId: str | None = None
+    excludeCombinationIds: list[str] = Field(default_factory=list)
+    source: Literal["wardrobe", "test"] = "wardrobe"
+    debug: bool = False
+
+
+class OutfitCreate(BaseModel):
+    name: str | None = None
+    clothingItemIds: list[str] = Field(min_length=1)
+    occasion: OccasionValue | None = None
+    style: StyleValue | None = None
+    season: SeasonValue | None = None
+    generationMethod: str = "deterministic"
+    generationMetadata: dict[str, Any] = Field(default_factory=dict)
+    userRating: int | None = Field(default=None, ge=1, le=5)
+
+
+class OutfitUpdate(BaseModel):
+    name: str | None = None
+    clothingItemIds: list[str] | None = Field(default=None, min_length=1)
+    occasion: OccasionValue | None = None
+    style: StyleValue | None = None
+    season: SeasonValue | None = None
+    userRating: int | None = Field(default=None, ge=1, le=5)
+
+
+class OutfitReplacement(BaseModel):
+    role: Literal["top", "bottom", "shoes", "outerwear", "accessory"]
+    clothingItemId: str
+
+
+class OutfitRating(BaseModel):
+    userRating: int | None = Field(default=None, ge=1, le=5)
