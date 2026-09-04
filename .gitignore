@@ -10,3 +10,4 @@ mobile/.env.local
 __pycache__/
 .pytest_cache/
 .codex/
+backend/.site-worker.lock

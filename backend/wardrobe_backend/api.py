@@ -1,6 +1,8 @@
 import asyncio
 import json
 import mimetypes
+import uuid
+import asyncio
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -12,7 +14,8 @@ from .config import Settings
 from .db import Database
 from .evaluation import score
 from .outfit_engine import combination_id, explanation, generate_outfit, role_for_item, score_combination, test_wardrobe
-from .schema import ATTRIBUTES, ClothingAnalysis, Correction, GroundTruth, OutfitCreate, OutfitGenerationRequest, OutfitRating, OutfitReplacement, OutfitUpdate, WardrobeItemCreate, WardrobeItemUpdate
+from .personalization import score_personalization
+from .schema import ATTRIBUTES, ClothingAnalysis, Correction, FavoriteUpdate, GroundTruth, OutfitCreate, OutfitFeedback, OutfitGenerationRequest, OutfitRating, OutfitReplacement, OutfitUpdate, PreferenceUpdate, WardrobeItemCreate, WardrobeItemUpdate
 from .storage import LocalImageStorage
 
 settings = Settings()
@@ -106,6 +109,14 @@ def create_wardrobe_item(item: WardrobeItemCreate):
     return db.create_clothing_item(item.imageId, values, item.name.strip() if item.name and item.name.strip() else generated_name(values), prediction=prediction)
 
 
+@app.patch("/wardrobe/{item_id}/favorite")
+def favorite_wardrobe_item(item_id: str, favorite: FavoriteUpdate):
+    item = db.set_favorite(item_id, favorite.isFavorite)
+    if not item:
+        raise HTTPException(404, "Clothing item not found")
+    return item
+
+
 @app.get("/wardrobe/{item_id}")
 def get_wardrobe_item(item_id: str):
     item = db.get_clothing_item(item_id)
@@ -133,6 +144,40 @@ def _outfit_generation_response(result):
     return result
 
 
+def _personalized_generation(result, items, request):
+    profile = db.get_personalization_profile()
+    recent = db.recent_history(24)
+    explicit = profile.get("explicit", {})
+    learned = profile.get("learned", {})
+    if not any(explicit.get(key) for key in ("preferredStyles", "dislikedStyles", "preferredColors", "dislikedColors", "preferredFits", "preferredOccasions")) and not any(learned.get(key) for key in ("styles", "items", "colors")) and not profile.get("favoriteItemIds") and not recent:
+        return result, None
+    live_by_id = {item["id"]: item for item in items}
+    ranked = []
+    for candidate in result.get("candidates", []):
+        candidate_items = [live_by_id[item_id] for item_id in candidate["clothingItemIds"] if item_id in live_by_id]
+        if not candidate_items:
+            continue
+        score = score_personalization(candidate["score"], candidate_items, profile, recent)
+        ranked.append({**candidate, "items": candidate_items, "personalizedScore": score})
+    if not ranked:
+        return result, None
+    ranked.sort(key=lambda candidate: (-candidate["personalizedScore"]["total"], -candidate["score"]["total"], candidate["combinationId"]))
+    chosen = ranked[0]
+    result["items"] = chosen["items"]
+    result["clothingItemIds"] = chosen["clothingItemIds"]
+    result["combinationId"] = chosen["combinationId"]
+    result["missingRoles"] = [role for role in ("top", "bottom", "shoes") if role not in {role_for_item(item) for item in chosen["items"]}]
+    result["isComplete"] = not result["missingRoles"]
+    result["message"] = "" if result["isComplete"] else "This is the best available combination. Add the missing roles to complete the outfit."
+    result["explanation"] = explanation(chosen["items"], {"occasion": request.occasion, "style": request.style, "season": request.season}, request.source)
+    final_score = chosen["personalizedScore"]
+    final_score["components"] = {**chosen["score"].get("components", {}), **final_score["components"]}
+    result["score"] = final_score
+    result["personalization"] = {"baseScore": chosen["score"], "personalization": final_score}
+    result["candidates"] = [{key: value for key, value in {**candidate, "score": candidate["personalizedScore"]}.items() if key != "items"} for candidate in ranked[:8]]
+    return result, chosen
+
+
 @app.post("/outfits/generate")
 def generate(request: OutfitGenerationRequest):
     if request.source == "test" and settings.environment != "development":
@@ -140,12 +185,18 @@ def generate(request: OutfitGenerationRequest):
     items = test_wardrobe() if request.source == "test" else db.list_clothing_items()
     if request.anchorItemId and not any(item["id"] == request.anchorItemId for item in items):
         raise HTTPException(404, "Anchor clothing item not found")
-    result = generate_outfit(items, request.occasion, request.style, request.season, request.anchorItemId, request.excludeCombinationIds, request.source)
+    result = generate_outfit(items, request.occasion, request.style, request.season, request.anchorItemId, request.excludeCombinationIds, request.source, include_all_candidates=request.source == "wardrobe")
+    chosen = None
+    generation_id = uuid.uuid4().hex
+    if result.get("available") and request.source == "wardrobe":
+        result, chosen = _personalized_generation(result, items, request)
+        db.record_history(result.get("clothingItemIds", []), request.occasion, request.style, request.season, result.get("score", {}).get("baseTotal", result.get("score", {}).get("total")), result.get("score", {}).get("total"), "generated", generation_id=generation_id)
     if not request.debug:
         result.pop("candidates", None)
         result.pop("rejected", None)
     result["filters"] = {"occasion": request.occasion, "style": request.style, "season": request.season}
     result["generationMethod"] = "deterministic-test" if request.source == "test" else "deterministic"
+    result["generationId"] = generation_id
     return _outfit_generation_response(result)
 
 
@@ -165,7 +216,10 @@ def outfits():
 def create_outfit(outfit: OutfitCreate):
     values = outfit.model_dump()
     try:
-        return db.create_outfit(values)
+        saved = db.create_outfit(values)
+        score_data = values.get("generationMetadata", {}).get("score", {})
+        db.record_history(saved["clothingItemIds"], saved.get("occasion"), saved.get("style"), saved.get("season"), score_data.get("baseTotal", score_data.get("total")), score_data.get("total"), "saved", outfit_id=saved["id"])
+        return saved
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -238,6 +292,51 @@ def rate_outfit(outfit_id: str, rating: OutfitRating):
     if not outfit:
         raise HTTPException(404, "Outfit not found")
     return outfit
+
+
+@app.get("/personalization")
+def personalization():
+    return db.personalization_debug()
+
+
+@app.patch("/personalization")
+def update_personalization(preferences: PreferenceUpdate):
+    return db.update_personalization(preferences.model_dump())
+
+
+@app.post("/personalization/reset-learned")
+def reset_learned_personalization():
+    return db.reset_learned_preferences()
+
+
+@app.post("/personalization/feedback")
+def personalization_feedback(feedback: OutfitFeedback):
+    values = feedback.model_dump()
+    if feedback.outfitId:
+        outfit = db.get_outfit(feedback.outfitId)
+        if not outfit:
+            raise HTTPException(404, "Outfit not found")
+        values["clothingItemIds"] = outfit["clothingItemIds"]
+        values["occasion"] = outfit.get("occasion")
+        values["style"] = outfit.get("style")
+        values["season"] = outfit.get("season")
+    return db.record_feedback(values)
+
+
+@app.get("/developer/personalization-lab")
+def personalization_lab():
+    if settings.environment != "development":
+        raise HTTPException(404, "Developer personalization tools are disabled")
+    return db.personalization_debug()
+
+
+@app.post("/outfits/{outfit_id}/worn")
+def mark_outfit_worn(outfit_id: str):
+    outfit = db.get_outfit(outfit_id)
+    if not outfit:
+        raise HTTPException(404, "Outfit not found")
+    history_id = db.record_history(outfit["clothingItemIds"], outfit.get("occasion"), outfit.get("style"), outfit.get("season"), outfit.get("generationMetadata", {}).get("score", {}).get("baseTotal"), outfit.get("generationMetadata", {}).get("score", {}).get("total"), "worn", outfit_id=outfit_id)
+    return {"worn": True, "historyId": history_id, "outfit": outfit}
 
 
 @app.post("/ground-truth")

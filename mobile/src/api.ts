@@ -21,6 +21,7 @@ export type ClothingItem = {
   aiConfidence: Record<string, number | null>;
   aiPrediction: Record<string, unknown>;
   userCorrected: boolean;
+  isFavorite: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,11 +52,23 @@ export type OutfitGeneration = {
   isComplete?: boolean;
   message?: string;
   explanation: string;
-  score?: { total: number; components: Record<string, number>; reasons: string[] };
+  score?: { total: number; baseTotal?: number; personalizationBonus?: number; components: Record<string, number>; reasons: string[] };
   candidates?: Array<Record<string, any>>;
   rejected?: Array<Record<string, any>>;
   filters?: Record<string, string | null>;
   generationMethod?: string;
+  generationId?: string;
+  personalization?: { baseScore: any; personalization: any };
+};
+
+export type PersonalizationProfile = {
+  explicit: { preferredStyles: string[]; dislikedStyles: string[]; preferredColors: string[]; dislikedColors: string[]; preferredFits: string[]; preferredOccasions: string[]; notes?: string };
+  learned: { styles: Record<string, number>; items: Record<string, number>; colors: Record<string, number> };
+  favoriteItemIds: string[];
+  favoriteItems: ClothingItem[];
+  itemSignals: Array<Record<string, any>>;
+  recentFeedback: Array<Record<string, any>>;
+  recentHistory: Array<Record<string, any>>;
 };
 
 type ErrorKind = 'configuration' | 'network' | 'timeout' | 'http' | 'invalid-response';
@@ -132,6 +145,19 @@ export function rateOutfit(id: string, userRating: number | null) {
   return requestJson(`/outfits/${encodeURIComponent(id)}/rating`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userRating }) }, 15_000) as Promise<Outfit>;
 }
 export const getTestOutfitWardrobe = () => requestJson('/developer/outfit-test-wardrobe', {}, 10_000) as Promise<{ items: ClothingItem[]; notice: string }>;
+export const getPersonalization = () => requestJson('/personalization', {}, 10_000) as Promise<PersonalizationProfile>;
+export function updatePersonalization(values: Record<string, unknown>) {
+  return requestJson('/personalization', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }, 10_000) as Promise<PersonalizationProfile>;
+}
+export const resetLearnedPreferences = () => requestJson('/personalization/reset-learned', { method: 'POST' }, 10_000) as Promise<PersonalizationProfile>;
+export function sendOutfitFeedback(values: Record<string, unknown>) {
+  return requestJson('/personalization/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }, 10_000) as Promise<PersonalizationProfile>;
+}
+export function setFavorite(itemId: string, isFavorite: boolean) {
+  return requestJson(`/wardrobe/${encodeURIComponent(itemId)}/favorite`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isFavorite }) }, 10_000) as Promise<ClothingItem>;
+}
+export const markOutfitWorn = (id: string) => requestJson(`/outfits/${encodeURIComponent(id)}/worn`, { method: 'POST' }, 10_000);
+export const getPersonalizationLab = () => requestJson('/developer/personalization-lab', {}, 10_000) as Promise<PersonalizationProfile>;
 
 export function saveCorrection(imageId: string, attribute: string, originalAIValue: unknown, correctedValue: unknown) {
   return requestJson(`/corrections?image_id=${encodeURIComponent(imageId)}`, {

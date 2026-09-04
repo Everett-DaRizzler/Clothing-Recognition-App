@@ -1,6 +1,6 @@
-# iPhone + Expo Go + local backend development (Phase 3)
+# iPhone + Expo Go + local backend development (Phase 4)
 
-This guide runs the Phase 3 AI Wardrobe application entirely on the local network:
+This guide runs the Phase 4 AI Wardrobe application entirely on the local network:
 
 `iPhone → Expo Go → Wi-Fi → Windows PC → FastAPI → installed StyleWell 4B model → iPhone`
 
@@ -126,21 +126,27 @@ Open Expo Go on the iPhone and scan the QR code shown by Expo. Keep both termina
 
 ## 7. Test the app
 
-1. Open **Developer AI Lab**.
+1. Open the **Settings gear → AI lab**.
 2. Confirm the displayed backend URL matches the computer's current IPv4 address.
 3. Tap **Test Backend Connection** and confirm the green **Connected** status.
-4. Return home and tap **Take Photo** or **Choose From Photos**.
+4. Tap the **My Wardrobe shirt icon → Add clothing**, then **Take Photo** or **Choose From Photos**.
 5. Use one clearly visible clothing item.
 6. Tap **Analyze**.
 7. Wait while the installed StyleWell model runs locally.
 8. Review the detected fields and edit any obvious mistakes.
 9. Tap **Save to Wardrobe** and confirm **Added to wardrobe.**
 10. Search/filter the wardrobe card, open it, edit it, and delete it when finished.
-11. Open **Outfits** and tap **Generate Outfit**.
+11. Tap the **My Outfits** layers icon and tap **Generate Outfit**.
 12. Choose an occasion, style, and season, then tap **Generate Outfit**.
 13. Confirm every displayed piece is from the wardrobe, review the explanation and score, and tap **Regenerate**.
 14. Save the generated outfit, open it under **Saved Outfits**, rate it, and use **Replace** on a piece.
 15. Open a clothing detail screen and use **Build an Outfit Around This** to verify specific-item generation.
+16. Open the **Profile person icon → Style preferences**, choose styles you like and styles you do not usually wear, and save.
+17. Generate an outfit, tap **Like** or **Not for me**, and optionally choose a dislike reason.
+18. Mark a wardrobe item as a favorite, generate again, and inspect the score explanation.
+19. Save an outfit, open it under **Saved Outfits**, and tap **Wore This** if appropriate.
+20. Open **Settings gear → Personalization lab** to inspect explicit choices, learned signals, feedback, favorites, history, and score reasons.
+21. Use **Reset Learned Preferences** and confirm learned signals disappear while explicit choices and wardrobe records remain.
 
 The outfit engine does not call the StyleWell model again. It uses saved structured attributes and stored thumbnails, so generation should be much faster than photo analysis.
 
@@ -153,6 +159,10 @@ From **Developer AI Lab**, tap **Open Developer Outfit Lab**. This uses 10 ficti
 - rejection reasons such as occasion mismatch or a role already being filled
 
 Use this screen when tuning scoring rules without photographing additional clothing.
+
+## 9. Phase 4 personalization lab
+
+From the **Profile person icon**, tap **Style preferences**. The screen uses normal language and does not require a questionnaire. The recommendation score remains anchored to the Phase 3 base score; preference changes are a bounded bonus or penalty. The developer lab inspects local signals and is not a second model or a cloud service.
 
 ## Troubleshooting
 
@@ -212,4 +222,4 @@ cd "C:\Users\gpope\Documents\ChatGPT\Clothing Recognition App\mobile"
 npm start
 ```
 
-Then open Expo Go → open the project → Developer AI Lab → Test Backend Connection → take a photo → Analyze.
+Then open Expo Go → open the project → Settings gear → AI lab → Test Backend Connection. Next tap My Wardrobe shirt icon → Add clothing → Take Photo or Choose From Photos → Analyze.

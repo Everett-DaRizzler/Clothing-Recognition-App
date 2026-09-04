@@ -218,7 +218,7 @@ def _candidate_rejections(items: list[dict[str, Any]], selected: list[dict[str, 
     return rejected
 
 
-def generate_outfit(items: list[dict[str, Any]], occasion: str | None = None, style: str | None = None, season: str | None = None, anchor_item_id: str | None = None, excluded: Iterable[str] = (), source: str = "wardrobe") -> dict[str, Any]:
+def generate_outfit(items: list[dict[str, Any]], occasion: str | None = None, style: str | None = None, season: str | None = None, anchor_item_id: str | None = None, excluded: Iterable[str] = (), source: str = "wardrobe", include_all_candidates: bool = False) -> dict[str, Any]:
     requested = {"occasion": occasion, "style": style, "season": season}
     available = [item for item in items if role_for_item(item)]
     anchor_present = bool(anchor_item_id and any(item["id"] == anchor_item_id for item in available))
@@ -238,18 +238,18 @@ def generate_outfit(items: list[dict[str, Any]], occasion: str | None = None, st
     shoes_choices = by_role["shoes"] or [None]
     outer_choices = by_role["outerwear"] + [None]
     accessory_choices = by_role["accessory"] + [None]
-    for top, bottom, shoes, outer, accessory in product(top_choices, bottom_choices, shoes_choices, outer_choices, accessory_choices):
+    for sequence, (top, bottom, shoes, outer, accessory) in enumerate(product(top_choices, bottom_choices, shoes_choices, outer_choices, accessory_choices)):
         picked = [item for item in (top, bottom, shoes, outer, accessory) if item]
         ids = {item["id"] for item in picked}
         if len(ids) != len(picked) or (anchor_present and anchor_item_id not in ids):
             continue
         scored = score_combination(picked, requested)
-        combinations.append({"items": picked, "score": scored, "combinationId": combination_id(picked)})
+        combinations.append({"items": picked, "score": scored, "combinationId": combination_id(picked), "sequence": sequence})
     if not combinations:
         picked = available[:3]
-        combinations = [{"items": picked, "score": score_combination(picked, requested), "combinationId": combination_id(picked)}]
+        combinations = [{"items": picked, "score": score_combination(picked, requested), "combinationId": combination_id(picked), "sequence": 0}]
     excluded_set = set(excluded)
-    ranked = sorted(combinations, key=lambda candidate: (-candidate["score"]["total"], candidate["combinationId"]))
+    ranked = sorted(combinations, key=lambda candidate: (-candidate["score"]["total"], candidate["sequence"]))
     chosen = next((candidate for candidate in ranked if candidate["combinationId"] not in excluded_set), ranked[0])
     chosen_items = chosen["items"]
     missing = _missing_roles(chosen_items)
@@ -263,7 +263,7 @@ def generate_outfit(items: list[dict[str, Any]], occasion: str | None = None, st
         "message": "" if not missing else "This is the best available combination. Add the missing roles to complete the outfit.",
         "explanation": explanation(chosen_items, requested, source),
         "score": chosen["score"],
-        "candidates": [{"combinationId": c["combinationId"], "clothingItemIds": [i["id"] for i in c["items"]], "score": c["score"]} for c in ranked[:8]],
+        "candidates": [{"combinationId": c["combinationId"], "clothingItemIds": [i["id"] for i in c["items"]], "score": c["score"]} for c in (ranked if include_all_candidates else ranked[:8])],
         "rejected": _candidate_rejections(available, chosen_items, requested),
     }
 

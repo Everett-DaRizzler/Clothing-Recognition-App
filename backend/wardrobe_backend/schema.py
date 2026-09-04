@@ -88,3 +88,28 @@ class OutfitReplacement(BaseModel):
 
 class OutfitRating(BaseModel):
     userRating: int | None = Field(default=None, ge=1, le=5)
+
+class PreferenceUpdate(BaseModel):
+    preferredStyles: list[StyleValue] = Field(default_factory=list)
+    dislikedStyles: list[StyleValue] = Field(default_factory=list)
+    preferredColors: list[str] = Field(default_factory=list)
+    dislikedColors: list[str] = Field(default_factory=list)
+    preferredFits: list[str] = Field(default_factory=list)
+    preferredOccasions: list[OccasionValue] = Field(default_factory=list)
+    notes: str | None = None
+
+class FavoriteUpdate(BaseModel):
+    isFavorite: bool
+
+class OutfitFeedback(BaseModel):
+    action: Literal["like", "dislike"]
+    reason: Literal["colors", "style", "one clothing item", "too formal", "too casual", "just don't like it"] | None = None
+    generationId: str | None = None
+    outfitId: str | None = None
+    clothingItemIds: list[str] = Field(default_factory=list)
+    occasion: OccasionValue | None = None
+    style: StyleValue | None = None
+    season: SeasonValue | None = None
+
+class WornOutfit(BaseModel):
+    outfitId: str

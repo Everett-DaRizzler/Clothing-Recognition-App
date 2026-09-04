@@ -111,6 +111,48 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS user_preferences(
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    explicit_json TEXT NOT NULL DEFAULT '{}',
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS preference_signals(
+                    signal_type TEXT NOT NULL,
+                    signal_key TEXT NOT NULL,
+                    positive_count INTEGER NOT NULL DEFAULT 0,
+                    negative_count INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(signal_type, signal_key)
+                );
+                CREATE TABLE IF NOT EXISTS clothing_favorites(
+                    clothing_item_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS outfit_feedback(
+                    id TEXT PRIMARY KEY,
+                    generation_id TEXT,
+                    outfit_id TEXT,
+                    clothing_item_ids_json TEXT NOT NULL DEFAULT '[]',
+                    occasion TEXT,
+                    style TEXT,
+                    season TEXT,
+                    action TEXT NOT NULL,
+                    reason TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS outfit_history(
+                    id TEXT PRIMARY KEY,
+                    generation_id TEXT,
+                    outfit_id TEXT,
+                    clothing_item_ids_json TEXT NOT NULL DEFAULT '[]',
+                    occasion TEXT,
+                    style TEXT,
+                    season TEXT,
+                    base_score REAL,
+                    personalized_score REAL,
+                    event_type TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
             models = [
@@ -182,6 +224,8 @@ class Database:
         if row is None:
             return None
         item = dict(row)
+        with self.conn() as connection:
+            is_favorite = connection.execute("SELECT 1 FROM clothing_favorites WHERE clothing_item_id=?", (item["id"],)).fetchone() is not None
         return {
             "id": item["id"], "imageId": item["image_id"],
             "name": item["name"], "brand": item["brand"], "category": item["category"],
@@ -192,6 +236,7 @@ class Database:
             "season": _load(item["seasons_json"], []), "aiModelId": item["ai_model_id"],
             "aiModelVersion": item["ai_model_version"], "aiConfidence": _load(item["ai_confidence_json"], {}),
             "aiPrediction": _load(item["ai_prediction_json"], {}), "userCorrected": bool(item["user_corrected"]),
+            "isFavorite": is_favorite,
             "createdAt": item["created_at"], "updatedAt": item["updated_at"],
         }
 
@@ -279,7 +324,89 @@ class Database:
     def delete_clothing_item(self, item_id):
         with self.conn() as connection:
             cursor = connection.execute("DELETE FROM clothing_items WHERE id=?", (item_id,))
+            connection.execute("DELETE FROM clothing_favorites WHERE clothing_item_id=?", (item_id,))
             return cursor.rowcount > 0
+
+    def set_favorite(self, item_id, is_favorite):
+        if not self.get_clothing_item(item_id):
+            return None
+        with self.conn() as connection:
+            if is_favorite:
+                connection.execute("INSERT OR IGNORE INTO clothing_favorites(clothing_item_id,created_at) VALUES (?,?)", (item_id, _now()))
+            else:
+                connection.execute("DELETE FROM clothing_favorites WHERE clothing_item_id=?", (item_id,))
+        return self.get_clothing_item(item_id)
+
+    def _explicit_preferences(self):
+        with self.conn() as connection:
+            row = connection.execute("SELECT explicit_json FROM user_preferences WHERE id=1").fetchone()
+        return _load(row["explicit_json"], {}) if row else {}
+
+    def get_personalization_profile(self):
+        with self.conn() as connection:
+            signals = connection.execute("SELECT * FROM preference_signals ORDER BY updated_at DESC").fetchall()
+            favorites = [row["clothing_item_id"] for row in connection.execute("SELECT clothing_item_id FROM clothing_favorites")]
+        styles, item_signals, colors = {}, {}, {}
+        for row in signals:
+            value = row["positive_count"] - row["negative_count"]
+            if row["signal_type"] == "style": styles[row["signal_key"].lower()] = value
+            elif row["signal_type"] == "item": item_signals[row["signal_key"]] = value
+            elif row["signal_type"] == "color": colors[row["signal_key"].lower()] = value
+        return {"explicit": self._explicit_preferences(), "learned": {"styles": styles, "items": item_signals, "colors": colors}, "favoriteItemIds": favorites}
+
+    def update_personalization(self, values):
+        explicit = {key: values.get(key, []) for key in ("preferredStyles", "dislikedStyles", "preferredColors", "dislikedColors", "preferredFits", "preferredOccasions")}
+        if values.get("notes") is not None:
+            explicit["notes"] = values["notes"]
+        with self.conn() as connection:
+            connection.execute("INSERT INTO user_preferences(id,explicit_json,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET explicit_json=excluded.explicit_json,updated_at=excluded.updated_at", (json.dumps(explicit, ensure_ascii=False), _now()))
+        return self.get_personalization_profile()
+
+    def reset_learned_preferences(self):
+        with self.conn() as connection:
+            connection.execute("DELETE FROM preference_signals")
+        return self.get_personalization_profile()
+
+    def record_history(self, item_ids, occasion=None, style=None, season=None, base_score=None, personalized_score=None, event_type="generated", generation_id=None, outfit_id=None):
+        history_id = uuid.uuid4().hex
+        with self.conn() as connection:
+            connection.execute("INSERT INTO outfit_history(id,generation_id,outfit_id,clothing_item_ids_json,occasion,style,season,base_score,personalized_score,event_type,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", (history_id, generation_id, outfit_id, _json(item_ids), occasion, style, season, base_score, personalized_score, event_type, _now()))
+        return history_id
+
+    def recent_history(self, limit=24):
+        with self.conn() as connection:
+            rows = connection.execute("SELECT rowid,* FROM outfit_history ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
+        return [{"id": row["id"], "generationId": row["generation_id"], "outfitId": row["outfit_id"], "clothingItemIds": _load(row["clothing_item_ids_json"], []), "occasion": row["occasion"], "style": row["style"], "season": row["season"], "baseScore": row["base_score"], "personalizedScore": row["personalized_score"], "eventType": row["event_type"], "createdAt": row["created_at"]} for row in rows]
+
+    def record_feedback(self, values):
+        item_ids = list(dict.fromkeys(values.get("clothingItemIds") or []))
+        action = values["action"]
+        with self.conn() as connection:
+            connection.execute("INSERT INTO outfit_feedback(id,generation_id,outfit_id,clothing_item_ids_json,occasion,style,season,action,reason,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (uuid.uuid4().hex, values.get("generationId"), values.get("outfitId"), _json(item_ids), values.get("occasion"), values.get("style"), values.get("season"), action, values.get("reason"), _now()))
+            rows = connection.execute("SELECT id,style_json,color FROM clothing_items WHERE id IN ({})".format(",".join("?" for _ in item_ids)), item_ids).fetchall() if item_ids else []
+            delta_column = "positive_count" if action == "like" else "negative_count"
+            for row in rows:
+                for value in set(_load(row["style_json"], [])):
+                    connection.execute("INSERT INTO preference_signals(signal_type,signal_key,positive_count,negative_count,updated_at) VALUES ('style',?,?,?,?) ON CONFLICT(signal_type,signal_key) DO UPDATE SET " + delta_column + "=" + delta_column + "+1,updated_at=excluded.updated_at", (str(value), 1 if action == "like" else 0, 1 if action == "dislike" else 0, _now()))
+                if row["color"]:
+                    value = str(row["color"])
+                    connection.execute("INSERT INTO preference_signals(signal_type,signal_key,positive_count,negative_count,updated_at) VALUES ('color',?,?,?,?) ON CONFLICT(signal_type,signal_key) DO UPDATE SET " + delta_column + "=" + delta_column + "+1,updated_at=excluded.updated_at", (value, 1 if action == "like" else 0, 1 if action == "dislike" else 0, _now()))
+                item_id = row["id"]
+                if item_id:
+                    connection.execute("INSERT INTO preference_signals(signal_type,signal_key,positive_count,negative_count,updated_at) VALUES ('item',?,?,?,?) ON CONFLICT(signal_type,signal_key) DO UPDATE SET " + delta_column + "=" + delta_column + "+1,updated_at=excluded.updated_at", (item_id, 1 if action == "like" else 0, 1 if action == "dislike" else 0, _now()))
+        return self.get_personalization_profile()
+
+    def recent_feedback(self, limit=20):
+        with self.conn() as connection:
+            rows = connection.execute("SELECT rowid,* FROM outfit_feedback ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
+        return [{"id": row["id"], "generationId": row["generation_id"], "outfitId": row["outfit_id"], "clothingItemIds": _load(row["clothing_item_ids_json"], []), "occasion": row["occasion"], "style": row["style"], "season": row["season"], "action": row["action"], "reason": row["reason"], "createdAt": row["created_at"]} for row in rows]
+
+    def personalization_debug(self):
+        profile = self.get_personalization_profile()
+        with self.conn() as connection:
+            favorites = [self._item(row) for row in connection.execute("SELECT c.* FROM clothing_items c JOIN clothing_favorites f ON f.clothing_item_id=c.id")]
+            signals = [dict(row) for row in connection.execute("SELECT * FROM preference_signals ORDER BY updated_at DESC")]
+        return {**profile, "favoriteItems": favorites, "itemSignals": signals, "recentFeedback": self.recent_feedback(), "recentHistory": self.recent_history()}
 
     def _outfit(self, row):
         if row is None:
