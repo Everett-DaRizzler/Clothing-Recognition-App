@@ -20,6 +20,22 @@ log = logging.getLogger('wardrobe.site_worker')
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 24_000_000
 
+def site_device(configured, cuda_available, free_bytes):
+    # Avoid automatic CPU offload on the 10-GiB PC when CUDA has enough headroom.
+    if configured == 'auto' and cuda_available and free_bytes >= 9 * 1024**3:
+        return 'cuda:0'
+    return configured
+
+
+def site_analyzer(settings):
+    import torch
+    available = torch.cuda.is_available()
+    free_bytes = torch.cuda.mem_get_info(0)[0] if available else 0
+    device = site_device(settings.device, available, free_bytes)
+    # This model's documented image target is 512x512; originals remain unchanged.
+    return StyleWell4BAnalyzer(settings.model_id, settings.model_revision, device,
+                              max_image_pixels=512 * 512)
+
 
 class Worker:
     def __init__(self):
@@ -30,7 +46,7 @@ class Worker:
         if not self.origin.startswith('https://') or not self.secret or not self.gate:
             raise RuntimeError('The protected Site worker connection has not been configured.')
         settings = Settings()
-        self.analyzer = StyleWell4BAnalyzer(settings.model_id, settings.model_revision, settings.device)
+        self.analyzer = site_analyzer(settings)
 
     def request(self, path, payload=None, lease=None, image=False):
         headers = {'X-Wardrobe-Worker': self.secret, 'OAI-Sites-Authorization': 'Bearer ' + self.gate}

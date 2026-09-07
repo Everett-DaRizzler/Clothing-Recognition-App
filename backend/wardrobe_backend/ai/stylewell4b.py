@@ -6,11 +6,14 @@ from .base import ClothingAnalyzer
 
 class StyleWell4BAnalyzer(ClothingAnalyzer):
     model_id = "stylewell-4b"
-    def __init__(self, model_name: str, revision: str = "main", device: str = "auto"): self.model_name, self.revision, self.device, self._model, self._processor = model_name, revision, device, None, None
+    def __init__(self, model_name: str, revision: str = "main", device: str = "auto", max_image_pixels: int | None = None):
+        self.model_name, self.revision, self.device, self._model, self._processor = model_name, revision, device, None, None
+        self.max_image_pixels = max_image_pixels
     def _load(self):
         if self._model is not None: return
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
-        self._processor = AutoProcessor.from_pretrained(self.model_name, revision=self.revision)
+        processor_options = {"min_pixels": 65536, "max_pixels": self.max_image_pixels} if self.max_image_pixels is not None else {}
+        self._processor = AutoProcessor.from_pretrained(self.model_name, revision=self.revision, **processor_options)
         self._model = Qwen3VLForConditionalGeneration.from_pretrained(self.model_name, revision=self.revision, dtype="auto", device_map=self.device).eval()
     def is_cached(self):
         from huggingface_hub import try_to_load_from_cache
